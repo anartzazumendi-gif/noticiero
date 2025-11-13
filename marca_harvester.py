@@ -41,8 +41,20 @@ for s in SOURCES_RAW:
     })
 
 # ========= CNMV POSICIONES CORTAS =========
-CNMV_BASE_URL = "https://www.cnmv.es/portal/consultas/ee/posicionescortas"
-CNMV_NIFS = CFG.get("cnmv_nifs") or CFG.get("CNMV_NIFS") or []
+# URL tal y como la usas en el navegador
+CNMV_BASE_URL = "https://www.cnmv.es/Portal/Consultas/ee/posicionescortas"
+
+def _normalize_cnmv_nifs(cfg: dict):
+    raw = cfg.get("cnmv_nifs") or cfg.get("CNMV_NIFS") or []
+    if isinstance(raw, str):
+        # admite "A-28294726" o "A-28294726, B-12345678 ..."
+        parts = re.split(r"[,\s;]+", raw)
+        return [p.strip() for p in parts if p.strip()]
+    if isinstance(raw, (list, tuple, set)):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    return []
+
+CNMV_NIFS = _normalize_cnmv_nifs(CFG)
 CNMV_LANG = (CFG.get("cnmv_lang") or "es").lower()
 
 # ========= RED =========
@@ -117,8 +129,11 @@ def get_cnmv_short_positions(nif: str, lang: str = None):
         ]
       }
     """
-    lang_param = (lang or CNMV_LANG or "es").lower()
-    url = f"{CNMV_BASE_URL}?lang={lang_param}&nif={nif}"
+    # replicamos la URL real; 'lang' se añade sólo si está definido
+    url = f"{CNMV_BASE_URL}?nif={nif}"
+    if lang or CNMV_LANG:
+        url += f"&lang={(lang or CNMV_LANG)}"
+
     try:
         res = http_get(url)
     except Exception as e:
@@ -147,7 +162,6 @@ def get_cnmv_short_positions(nif: str, lang: str = None):
 
     # Emisor (mejor esfuerzo)
     issuer = ""
-    # Suele aparecer cerca de la cabecera principal
     for tag in soup.select("h1, h2, strong"):
         text = tag.get_text(strip=True)
         if not text:
@@ -175,7 +189,6 @@ def get_cnmv_short_positions(nif: str, lang: str = None):
         except ValueError:
             continue
 
-        # Fecha DD/MM/YYYY -> ISO
         date_iso = date_raw
         try:
             dt = datetime.strptime(date_raw, "%d/%m/%Y").date()
@@ -545,6 +558,7 @@ def enviar_correo(html_content, subject):
 
 # ========= MAIN =========
 def main(keyword=None, tzname="Europe/Madrid"):
+    log(f"CNMV_NIFS configurados: {CNMV_NIFS}")
     seen = load_state()
     listing = parse_all_listings()
 
@@ -653,6 +667,7 @@ if __name__ == "__main__":
     if kw_env and not kws:
         kws = [k.strip() for k in kw_env.split("|") if k.strip()]
     main(keyword=kws, tzname=tzname)
+
 
 
 
